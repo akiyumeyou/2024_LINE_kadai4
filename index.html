@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>シニア向けLINE風アプリ</title>
+<link rel="stylesheet" href="css/chat.css">
+<link rel="icon" type="image/x-icon" href="img/favicon.ico">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+
+<body>
+<header>
+ 
+</header>
+
+
+<div>
+<h1>LINE風おしゃべり</h1>
+<script>
+// 初期ユーザー名の確認
+let userName = prompt("あなたの名前を入力してください", "ゲスト");
+if (!userName) userName = "ゲスト"; // 入力がない場合のデフォルト値
+</script>
+
+<div style="margin-bottom: 10px;">
+    名前：<span id="uname_display"></span>
+</div>
+<div>
+    <textarea id="text" cols="30" rows="10" class=message></textarea><br>
+    <input type="file" id="file" accept="image/*"><br>
+    <button id="send">送信</button>
+</div>
+<div id="output" style="overflow: auto;height: 400px;"></div>
+</div>
+<footer id="footer">
+    <img src="img/logo.png" alt="potz" class="logo"> 
+    <a href="https://potz.jp/">https://potz.jp/</a>
+</footer>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+import { getDatabase, ref, push, set, update, remove, onChildAdded, onChildChanged, onChildRemoved } 
+from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+import { getStorage, ref as sRef, uploadBytes, getDownloadURL } 
+from "https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js";
+
+import firebaseConfig from "./js/firebase.js";
+    console.log(firebaseConfig);
+
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const storage = getStorage(app);
+const dbRef = ref(db,"chat");
+
+// 初期ユーザー名を画面に表示
+document.getElementById("uname_display").textContent = userName;
+
+function formatTimestamp(date) {
+    const y = date.getFullYear();
+    const m = ('0' + (date.getMonth() + 1)).slice(-2);
+    const d = ('0' + date.getDate()).slice(-2);
+    const hour = ('0' + date.getHours()).slice(-2);
+    const min = ('0' + date.getMinutes()).slice(-2);
+    return `${y}/${m}/${d} ${hour}:${min}`;
+}
+
+$("#send").on("click", async function() {
+    const now = new Date();
+    let msg = {
+        uname: userName, // 入力されたユーザー名を使用
+        text: $("#text").val(),
+        timestamp: formatTimestamp(now)
+    };
+
+    const file = document.getElementById("file").files[0];
+    if (file) {
+        const storageRef = sRef(storage, `images/${Date.now()}-${file.name}`);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        msg.imageUrl = url;
+    }
+
+    const newPostRef = push(dbRef);
+    await set(newPostRef, msg);
+    $("#text").val('');
+    $("#file").val('');
+    loadMessages(); // メッセージの読み込みをトリガー
+});
+
+
+// メッセージをリアルタイムで読み込む
+function loadMessages() {
+    // 存在するメッセージを一度クリア
+    $("#output").empty();
+
+    onChildAdded(dbRef, function(data) {
+        const msg = data.val();
+
+        let h = '<div id="message-' + data.key + '" class="message-container">'; // メッセージコンテナの開始
+        h += '<p class="message-text">' + msg.uname + '<br>' + formatMessageText(msg.text) + '</p>'; // テキストに関数を適用
+        if (msg.imageUrl) {
+            h += `<img src="${msg.imageUrl}" style="max-width: 200px;"><br>`;
+        }
+        h += '<span>' + msg.timestamp + '</span>';
+
+        // 更新ボタンと削除ボタンの追加
+        h += `<button class="update-btn" data-id="${data.key}">更新</button>`;
+        h += `<button class="delete-btn" data-id="${data.key}">削除</button>`;
+
+        h += '</div>'; // メッセージコンテナの終了
+        $("#output").prepend(h); // 最新のメッセージを上に表示
+    });
+}
+
+// テキスト内のURLをリンクに置換する関数
+function formatMessageText(text) {
+    // URLを検出してリンクに置換する正規表現パターン
+    const urlPattern = /(https?:\/\/[^\s]+)/g;
+
+    // テキスト内のURLをリンクに置換する
+    return text.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
+}
+
+
+$(document).on('click', '.update-btn', function() {
+    const messageId = $(this).data('id');
+    const newText = prompt("メッセージを更新してください:");
+    if (newText) {
+        const messageRef = ref(db, 'chat/' + messageId);
+        update(messageRef, { text: newText }).then(() => {
+            // メッセージの表示を更新
+            $(`#message-${messageId} .message-text`).text(newText);
+            alert("メッセージが更新されました。");
+        }).catch((error) => {
+            console.error("更新エラー:", error);
+            alert("更新に失敗しました。");
+        });
+    }
+});
+
+$(document).on('click', '.delete-btn', function() {
+    const messageId = $(this).data('id');
+    if (confirm("このメッセージを削除してもよろしいですか？")) {
+        const messageRef = ref(db, 'chat/' + messageId);
+        remove(messageRef).then(() => {
+            // メッセージをページから削除
+            $(`#message-${messageId}`).remove();
+            alert("メッセージが削除されました。");
+        }).catch((error) => {
+            console.error("削除エラー:", error);
+            alert("削除に失敗しました。");
+        });
+    }
+});
+loadMessages();
+
+
+</script>
+</html>
